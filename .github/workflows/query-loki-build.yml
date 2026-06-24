@@ -1,0 +1,58 @@
+name: Build query-loki
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "query-loki/**"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            asset: query-loki-linux-amd64
+          - goos: linux
+            goarch: arm64
+            asset: query-loki-linux-arm64
+          - goos: darwin
+            goarch: amd64
+            asset: query-loki-darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            asset: query-loki-darwin-arm64
+          - goos: windows
+            goarch: amd64
+            asset: query-loki-windows-amd64.exe
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          cache-dependency-path: query-loki/go.sum
+
+      - name: Build
+        working-directory: query-loki
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: go build -ldflags="-s -w" -o ../dist/${{ matrix.asset }} .
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: latest
+          prerelease: false
+          files: dist/${{ matrix.asset }}
