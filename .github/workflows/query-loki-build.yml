@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - "query-loki/**"
+      - "skills/query-loki/**"
 
 permissions:
   contents: write
@@ -39,10 +39,10 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26"
-          cache-dependency-path: query-loki/go.sum
+          cache-dependency-path: skills/query-loki/go.sum
 
       - name: Build
-        working-directory: query-loki
+        working-directory: skills/query-loki
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
