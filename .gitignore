@@ -146,4 +146,4 @@ vite.config.ts.timestamp-*
 .idea
 
 # Downloaded skill binaries
-skills/query-loki/bin/
+query-loki/bin/
