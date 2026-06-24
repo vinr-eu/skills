@@ -25,18 +25,28 @@ type queryResponse struct {
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 
-	lokiURL := flag.String("url", os.Getenv("LOKI_URL"), "Loki base URL (env: LOKI_URL)")
+	lokiURLFlag := flag.String("url", "", "Loki base URL (env: LOKI_URL)")
 	query := flag.String("query", "", "LogQL query (e.g. {job=\"nginx\"} |= \"error\")")
 	from := flag.String("from", "", "Start time (RFC3339 or Unix ns, default: 1 hour ago)")
 	to := flag.String("to", "", "End time (RFC3339 or Unix ns, default: now)")
 	limit := flag.Int("limit", 100, "Max log lines to return")
-	token := flag.String("token", os.Getenv("LOKI_TOKEN"), "Bearer token for auth (env: LOKI_TOKEN)")
+	tokenFlag := flag.String("token", "", "Bearer token for auth (env: LOKI_TOKEN)")
 	jsonOut := flag.Bool("json", false, "Print raw JSON response instead of plain log lines")
 	labels := flag.Bool("labels", false, "List available label names instead of running a query")
 	labelValues := flag.String("label-values", "", "List values for the given label name instead of running a query")
 	flag.Parse()
 
-	if *lokiURL == "" {
+	// Flags never default to credential-bearing env vars, so --help can't leak secrets.
+	lokiURL := *lokiURLFlag
+	if lokiURL == "" {
+		lokiURL = os.Getenv("LOKI_URL")
+	}
+	token := *tokenFlag
+	if token == "" {
+		token = os.Getenv("LOKI_TOKEN")
+	}
+
+	if lokiURL == "" {
 		slog.Error("Loki URL required", "hint", "set LOKI_URL env var or pass --url")
 		os.Exit(1)
 	}
@@ -60,7 +70,7 @@ func main() {
 		params := url.Values{}
 		params.Set("start", startNs)
 		params.Set("end", endNs)
-		body := doRequest(*lokiURL, path, params, *token)
+		body := doRequest(lokiURL, path, params, token)
 
 		if *jsonOut {
 			fmt.Println(string(body))
@@ -92,7 +102,7 @@ func main() {
 	params.Set("limit", strconv.Itoa(*limit))
 	params.Set("direction", "forward")
 
-	body := doRequest(*lokiURL, "/loki/api/v1/query_range", params, *token)
+	body := doRequest(lokiURL, "/loki/api/v1/query_range", params, token)
 
 	if *jsonOut {
 		fmt.Println(string(body))
@@ -126,7 +136,7 @@ func doRequest(lokiURL, path string, params url.Values, token string) []byte {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		slog.Error("error querying Loki", "url", lokiURL, "error", err)
+		slog.Error("error querying Loki", "url", redactCredentials(lokiURL), "error", err)
 		os.Exit(1)
 	}
 	defer func(Body io.ReadCloser) {
@@ -145,6 +155,17 @@ func doRequest(lokiURL, path string, params url.Values, token string) []byte {
 	}
 
 	return body
+}
+
+// redactCredentials masks any embedded Basic Auth userinfo (e.g. instanceID:token@host)
+// so credentials never end up in logs or error output.
+func redactCredentials(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.User == nil {
+		return rawURL
+	}
+	u.User = url.UserPassword(u.User.Username(), "REDACTED")
+	return u.String()
 }
 
 func parseTime(s string) string {
