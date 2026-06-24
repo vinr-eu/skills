@@ -32,14 +32,12 @@ func main() {
 	limit := flag.Int("limit", 100, "Max log lines to return")
 	token := flag.String("token", os.Getenv("LOKI_TOKEN"), "Bearer token for auth (env: LOKI_TOKEN)")
 	jsonOut := flag.Bool("json", false, "Print raw JSON response instead of plain log lines")
+	labels := flag.Bool("labels", false, "List available label names instead of running a query")
+	labelValues := flag.String("label-values", "", "List values for the given label name instead of running a query")
 	flag.Parse()
 
 	if *lokiURL == "" {
 		slog.Error("Loki URL required", "hint", "set LOKI_URL env var or pass --url")
-		os.Exit(1)
-	}
-	if *query == "" {
-		slog.Error("query required", "hint", "pass --query '<logql>'")
 		os.Exit(1)
 	}
 
@@ -54,6 +52,39 @@ func main() {
 		endNs = parseTime(*to)
 	}
 
+	if *labels || *labelValues != "" {
+		path := "/loki/api/v1/labels"
+		if *labelValues != "" {
+			path = "/loki/api/v1/label/" + url.PathEscape(*labelValues) + "/values"
+		}
+		params := url.Values{}
+		params.Set("start", startNs)
+		params.Set("end", endNs)
+		body := doRequest(*lokiURL, path, params, *token)
+
+		if *jsonOut {
+			fmt.Println(string(body))
+			return
+		}
+
+		var result struct {
+			Data []string `json:"data"`
+		}
+		if err := json.Unmarshal(body, &result); err != nil {
+			slog.Error("error parsing response", "error", err)
+			os.Exit(1)
+		}
+		for _, v := range result.Data {
+			fmt.Println(v)
+		}
+		return
+	}
+
+	if *query == "" {
+		slog.Error("query required", "hint", "pass --query '<logql>', or use --labels / --label-values")
+		os.Exit(1)
+	}
+
 	params := url.Values{}
 	params.Set("query", *query)
 	params.Set("start", startNs)
@@ -61,34 +92,7 @@ func main() {
 	params.Set("limit", strconv.Itoa(*limit))
 	params.Set("direction", "forward")
 
-	req, err := http.NewRequest("GET", *lokiURL+"/loki/api/v1/query_range?"+params.Encode(), nil)
-	if err != nil {
-		slog.Error("error building request", "error", err)
-		os.Exit(1)
-	}
-	if *token != "" {
-		req.Header.Set("Authorization", "Bearer "+*token)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		slog.Error("error querying Loki", "url", *lokiURL, "error", err)
-		os.Exit(1)
-	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		slog.Error("error reading response body", "error", err)
-		os.Exit(1)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		slog.Error("unexpected response from Loki", "status", resp.StatusCode, "body", string(body))
-		os.Exit(1)
-	}
+	body := doRequest(*lokiURL, "/loki/api/v1/query_range", params, *token)
 
 	if *jsonOut {
 		fmt.Println(string(body))
@@ -108,6 +112,39 @@ func main() {
 			fmt.Printf("%s  %s\n", t, v[1])
 		}
 	}
+}
+
+func doRequest(lokiURL, path string, params url.Values, token string) []byte {
+	req, err := http.NewRequest("GET", lokiURL+path+"?"+params.Encode(), nil)
+	if err != nil {
+		slog.Error("error building request", "error", err)
+		os.Exit(1)
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		slog.Error("error querying Loki", "url", lokiURL, "error", err)
+		os.Exit(1)
+	}
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(resp.Body)
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		slog.Error("error reading response body", "error", err)
+		os.Exit(1)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		slog.Error("unexpected response from Loki", "status", resp.StatusCode, "body", string(body))
+		os.Exit(1)
+	}
+
+	return body
 }
 
 func parseTime(s string) string {

@@ -13,17 +13,19 @@ stdout. The binary is downloaded from GitHub Releases on first use and cached lo
 
 ## Parameters
 
-| Parameter   | Flag      | Env var      | Required | Default    | Notes                             |
-|-------------|-----------|--------------|----------|------------|-----------------------------------|
-| Loki URL    | `--url`   | `LOKI_URL`   | Yes      | —          | Base URL, e.g. `http://loki:3100` |
-| LogQL query | `--query` | —            | Yes      | —          | e.g. `{job="nginx"} \|= "error"`  |
-| Start time  | `--from`  | —            | No       | 1 hour ago | RFC3339 or Unix nanoseconds       |
-| End time    | `--to`    | —            | No       | now        | RFC3339 or Unix nanoseconds       |
-| Limit       | `--limit` | —            | No       | 100        | Max log lines returned            |
-| Auth token  | `--token` | `LOKI_TOKEN` | No       | —          | Bearer token                      |
-| Raw JSON    | `--json`  | —            | No       | false      | Print full Loki JSON response     |
+| Parameter      | Flag             | Env var      | Required | Default    | Notes                                                  |
+|----------------|------------------|--------------|----------|------------|---------------------------------------------------------|
+| Loki URL       | `--url`          | `LOKI_URL`   | Yes      | —          | Base URL, e.g. `http://loki:3100`                      |
+| LogQL query    | `--query`        | —            | Yes*     | —          | e.g. `{job="nginx"} \|= "error"`. Not needed with `--labels`/`--label-values` |
+| List labels    | `--labels`       | —            | No       | false      | List available label names instead of running a query  |
+| List label values | `--label-values` | —        | No       | —          | Label name; lists its known values instead of running a query |
+| Start time     | `--from`         | —            | No       | 1 hour ago | RFC3339 or Unix nanoseconds                            |
+| End time       | `--to`           | —            | No       | now        | RFC3339 or Unix nanoseconds                            |
+| Limit          | `--limit`        | —            | No       | 100        | Max log lines returned (ignored for `--labels`/`--label-values`) |
+| Auth token     | `--token`        | `LOKI_TOKEN` | No       | —          | Bearer token                                           |
+| Raw JSON       | `--json`         | —            | No       | false      | Print full Loki JSON response                          |
 
-Flags take precedence over env vars.
+Flags take precedence over env vars. `--query`, `--labels`, and `--label-values` are mutually exclusive modes.
 
 ## Step 0 – Check for required config
 
@@ -113,6 +115,18 @@ Raw JSON (for further processing):
 ```bash
 ./bin/query-loki-linux-amd64 --query '{job="app"}' --json
 ```
+
+Discover what label names exist (useful when you don't know the schema, or to confirm whether any logs exist at all):
+```bash
+./bin/query-loki-linux-amd64 --labels --from 2024-06-01T00:00:00Z
+```
+
+List the known values for a specific label:
+```bash
+./bin/query-loki-linux-amd64 --label-values job --from 2024-06-01T00:00:00Z
+```
+
+If `--labels` returns nothing over a wide time range (e.g. 30 days), no logs have been ingested into that Loki instance at all — this is not an auth or query problem.
 
 ## Step 4 – Interpret the output
 
